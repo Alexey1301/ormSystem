@@ -65,43 +65,61 @@
 Система состоит из следующих основных контейнеров:
 
 - **SPA клиент** (React) - веб-интерфейс для работы с системой
-- **Backend приложение** (Spring Boot) - ядро системы с модульной архитектурой
-- **База данных** (PostgreSQL) - основное хранилище данных
-- **Telegram Bot** - сервис доставки уведомлений
+- **Server** (Spring Boot) - ядро системы с модульной архитектурой
+- **ORM Database** (PostgreSQL) - основное хранилище данных
+- **Object Storage** - S3-совместимое хранилище
+- **Review Platforms APIs** – Внешние API-платформы
+
+<img width="761" height="668" alt="image" src="https://github.com/user-attachments/assets/85867971-8dfa-4b80-8571-ddc5e8ba8a61" />
+
 
 #### Компонентный уровень
 
 Система разделена на четыре основных модуля:
 
 **Модуль аутентификации и безопасности**:
-- AuthController - управление аутентификацией
-- AuthService - бизнес-логика авторизации
-- UserRepository - доступ к данным пользователей
+- AuthController - контроллер управления аутентификацией
+- AuthService - слой бизнес-логики аутентификации
+- UserRepository - слой доступа к данным пользователей
+- TokenService – сервис управления токенами
+- UserController – контроллер управления пользователями
+- UserService – бизнес-логика управления пользователями
+- User – сущность, представляющая пользователя
 
-**Модуль уведомлений**:
-- AlertController - управление уведомлениями
-- AlertService - обработка и отправка уведомлений
-- AlertBuilder - формирование содержимого уведомлений
-- TelegramService - интеграция с Telegram API
+<img width="761" height="561" alt="image" src="https://github.com/user-attachments/assets/79b39057-db66-460f-9984-5248e2991887" />
+
 
 **Модуль отчетности**:
-- ReportsController - управление отчетами
-- ReportService - генерация отчетов
-- TemplateEngine - создание PDF/Excel/CSV документов
+- ReportsController - контроллер управления отчетами
+- ReportService - слой бизнес-логики работы с отчетами
+- Report – сущность, представляющая объект «Отчет»
+- ReportRepository – слой доступа к данным отчетов
+- TemplateEngine - компонент генерации отчетов
 
-**Модуль поиска и анализа**:
-- SearchController - обработка поисковых запросов
-- SearchService - бизнес-логика поиска
-- IntegrationService - работа с внешними API платформ
+<img width="416" height="655" alt="image" src="https://github.com/user-attachments/assets/9c6937ea-f34b-453d-8429-ee5d861aa96e" />
+
+
+**Модуль поиска**:
+- SearchController - контроллер управления поиском
+- SearchService - слой бизнес-логики, выполняющий операции поиска
+- SearchParser – компонент для работы с внешними отзывами и источниками данных
+- Search – сущность, описывающая процесс или результат поиска
+- SearchRepository – слой доступа к данным поиска
+
+<img width="695" height="564" alt="image" src="https://github.com/user-attachments/assets/ac03f358-2af9-45cf-864c-5a06b8e02411" />
+
+
+**Модуль организации**:
+– OrganizationController – контроллер управления организациями
+– OrganizationService – бизнес-логика работы с организациями
+– Organization – сущность, представляющая объект «Организация»
+– OrganizationRepository – слой доступа к данным организаций
+
+<img width="210" height="530" alt="image" src="https://github.com/user-attachments/assets/beebaf33-c6fc-4ed5-b968-fe235cab790d" />
 
 ### Схема данных
 
-Основные сущности системы:
-- **User** - пользователи системы
-- **Organization** - отслеживаемые компании
-- **Mention** - собранные отзывы и упоминания
-- **Alert** - уведомления и настройки оповещений
-- **Report** - сгенерированные отчеты
+Описание отношений и структур данных, используемых в ПС. Также представить скрипт (программный код), который необходим для генерации БД
 
 ---
 
