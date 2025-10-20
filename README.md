@@ -38,19 +38,19 @@
 2. [Функциональные возможности](#функциональные-возможности)
 	1. [Диаграмма вариантов использования](#диаграмма-вариантов-использования)
 	2. [User-flow диаграммы](#user-flow-диаграммы)
-3. [Детали реализации](#детали-реализации)
+3. [Пользовательский интерфейс](#пользовательский-интерфейс)
+	1. [Примеры экранов UI](#примеры-экранов-ui)
+4. [Детали реализации](#детали-реализации)
 	1. [UML-диаграммы](#uml-диаграммы)
 	2. [Спецификация API](#спецификация-api)
 	3. [Безопасность](#безопасность)
 	4. [Оценка качества кода](#оценка-качества-кода)
-4. [Тестирование](#тестирование)
+5. [Тестирование](#тестирование)
 	1. [Unit-тесты](#unit-тесты)
 	2. [Интеграционные тесты](#интеграционные-тесты)
-5. [Установка и запуск](#установка-и-запуск)
+6. [Установка и запуск](#установка-и-запуск)
 	1. [Конфигурация приложения](#конфигурация-приложения)
 	2. [Развертывание системы](#развертывание-системы)
-6. [Лицензия](#лицензия)
-7. [Контакты](#контакты)
 
 ---
 
@@ -137,7 +137,11 @@ User-flow диаграмма процесса авторизации и порл
 
 User-flow диаграмма для роли "Администратор"
 
-<img width="1109" height="709" alt="image" src="https://github.com/user-attachments/assets/9b6faac3-e164-4256-8c2d-dd607d27ea56" />
+<img width="486" height="624" alt="image" src="https://github.com/user-attachments/assets/303e7415-c5b5-4f26-b648-00b442a43c9b" />
+
+User-flow диаграмма для роли "Управляющий"
+
+<img width="623" height="616" alt="image" src="https://github.com/user-attachments/assets/2ced4058-3f6d-412f-bf1e-e2383c831353" />
 
 User-flow диаграмма для роли "Модератор"
 
@@ -148,6 +152,81 @@ User-flow диаграмма для роли "Специалист"
 <img width="512" height="694" alt="image" src="https://github.com/user-attachments/assets/cdc885ca-86d7-4a89-87c4-14bcd456ae93" />
 
 ---
+
+## **Пользовательский интерфейс**
+
+### **Примеры экранов UI**
+
+
+#### **Общие страницы**
+
+– страница авторизации
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/62b30c1a-f7c8-401b-bf9a-cf528d47c3b2" />
+
+– страница "Профиль"
+
+<img width="1440" height="758" alt="image" src="https://github.com/user-attachments/assets/793c35af-2503-4f39-9b71-5b6168eab1a0" />
+
+
+#### **Страницы роли "Администратор"**
+
+– страница "Управление пользователями"
+
+<img width="1432" height="816" alt="image" src="https://github.com/user-attachments/assets/57a22c49-cdec-4cfd-9366-1801b92f8c8a" />
+
+
+#### **Страницы роли "Управляющий"**
+
+– страница "Управление компаниями"
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/d9b67044-79ea-446c-9fb6-d3b02a01a567" />
+
+– страница "Сводный отчет"
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/2fb5a50f-568d-44d1-af43-74260aee0c08" />
+
+– страница "Тональность"
+
+<img width="1440" height="818" alt="image" src="https://github.com/user-attachments/assets/a796111f-1139-439d-8b60-43b60bf3ef21" />
+
+– страница "Источники"
+
+<img width="1440" height="455" alt="image" src="https://github.com/user-attachments/assets/ca3e924d-4b6f-4b42-932c-1e1b23bbcbcb" />
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/ee3b45e8-e529-4a9c-9a67-b7a70f4c79b8" />
+
+– страница "География"
+
+<img width="1440" height="607" alt="image" src="https://github.com/user-attachments/assets/3616fa54-33df-47b8-8fe3-f850e718c97b" />
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/ff561495-7885-46b4-965f-ec3b2b3a6baa" />
+
+
+#### **Страницы роли "Модератор"**
+
+– страница "Источники"
+
+<img width="1440" height="821" alt="image" src="https://github.com/user-attachments/assets/4639abb2-6a4f-4713-96a0-f98240163bb5" />
+
+– страница "Отзызвы"
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/20184e86-3f4b-468b-bf9e-365a3eb6f05f" />
+
+– страница "Задачи"
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/a6866b91-adea-441e-8624-ab49f984d10e" />
+
+
+#### **Страницы роли "Специалист"**
+
+– страница "Мои задачи"
+
+<img width="1440" height="820" alt="image" src="https://github.com/user-attachments/assets/226bda3b-0b75-4e6b-a146-48d657656d55" /> 
+<img width="1440" height="821" alt="image" src="https://github.com/user-attachments/assets/b1a974d6-6817-4090-a7ce-7f9303efdc05" />
+
+– страница "Моя статистика"
+
+<img width="1440" height="682" alt="image" src="https://github.com/user-attachments/assets/39248bba-5cdd-47c9-8d5b-f312c327f7b1" />
+
 
 ## **Детали реализации**
 
