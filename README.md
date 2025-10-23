@@ -121,7 +121,8 @@
 
 Схема базы данных, используемой в ПС.
 
-<img width="980" height="682" alt="image" src="https://github.com/user-attachments/assets/e5ec4274-1069-4ed6-885c-3c99f37c0485" />
+<img width="414" height="791" alt="image" src="https://github.com/user-attachments/assets/f92e8864-a30e-4aab-b09a-1cdd55e957ad" />
+
 
 ---
 
