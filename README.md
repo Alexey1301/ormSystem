@@ -248,7 +248,924 @@ REST API включает endpoints для:
 
 ### Безопасность
 
-Реализована JWT-аутентификация с ролевой моделью доступа. Пароли хранятся в захэшированном виде с использованием bcrypt.
+## 1. Технологический стек
+
+В проекте используется современный стек технологий для обеспечения высокого уровня безопасности и производительности:
+
+**Spring Security 6**  
+Комплексная система защиты приложений, обеспечивающая аутентификацию, авторизацию, защиту от CSRF/XSS атак, интеграцию с различными механизмами аутентификации. Версия 6 полностью совместима с Jakarta EE и предоставляет современный функциональный API.
+
+**JJWT 0.12.3** (Java JWT Library)  
+Библиотека для работы с JSON Web Tokens. Поддерживает создание, парсинг и валидацию JWT с различными алгоритмами подписи (HS256, HS512, RS256 и др.). Обеспечивает type-safe работу с claims и автоматическую проверку expiration.
+
+**BCrypt Password Encoder**  
+Алгоритм хеширования паролей, встроенный в Spring Security. Использует адаптивный подход с конфигурируемым количеством раундов (по умолчанию 10), автоматически генерирует уникальную соль для каждого пароля. Устойчив к rainbow table атакам.
+
+## 2. Конфигурация Spring Security
+
+Конфигурация безопасности является центральным компонентом системы и определяет правила доступа к различным endpoints приложения. Класс `SecurityConfig` использует возможности Spring Security 6 для настройки следующих аспектов:
+
+- **Отключение CSRF-защиты**, так как приложение использует stateless JWT аутентификацию, где токены передаются в заголовках, а не в cookies
+- **Настройка режима управления сессиями как STATELESS** — сервер не создает и не хранит HTTP-сессии
+- **Определение публичных endpoints**, доступных без аутентификации (`/auth/**`)
+- **Регистрация кастомного JWT фильтра** для проверки токенов в каждом запросе
+- **Настройка обработчика ошибок** для неавторизованных запросов (возврат 401 Unauthorized)
+
+Аннотации `@EnableWebSecurity` и `@EnableMethodSecurity` активируют механизмы защиты на уровне веб-запросов и методов соответственно, позволяя использовать `@PreAuthorize` для контроля доступа на уровне контроллеров.
+
+### Код SecurityConfig.java
+
+```java
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final UserDetailsServiceImpl userDetailsService;
+    private final JwtAuthenticationEntryPoint unauthorizedHandler;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public DaoAuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authConfig) 
+            throws Exception {
+        return authConfig.getAuthenticationManager();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(AbstractHttpConfigurer::disable)
+            .cors(cors -> cors.configure(http))
+            .exceptionHandling(exception -> 
+                exception.authenticationEntryPoint(unauthorizedHandler))
+            .sessionManagement(session -> 
+                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/auth/**").permitAll()
+                .requestMatchers("/actuator/**").permitAll()
+                .anyRequest().authenticated()
+            );
+
+        http.authenticationProvider(authenticationProvider());
+        http.addFilterBefore(jwtAuthenticationFilter, 
+                              UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+}
+```
+
+---
+
+## 3. Конфигурация application.yml
+
+Настройки JWT токенов, подключения к базе данных и другие параметры приложения вынесены в файл конфигурации `application.yml`. Использование переменных окружения через синтаксис `${VAR_NAME:default_value}` позволяет гибко управлять параметрами в разных окружениях (development, production) без изменения кода.
+
+### Код application.yml
+
+```yaml
+spring:
+  application:
+    name: reputation-management-system
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/reputation_db
+    username: postgres
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          lob:
+            non_contextual_creation: true
+    open-in-view: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:your-secret-key-change-this-in-production-must-be-at-least-256-bits-long}
+  access-token-expiration: 900000      # 15 минут (в миллисекундах)
+  refresh-token-expiration: 604800000  # 7 дней (в миллисекундах)
+
+# CORS Configuration
+cors:
+  allowed-origins: http://localhost:3000
+  allowed-methods: GET,POST,PUT,DELETE,OPTIONS,PATCH
+  allowed-headers: '*'
+  allow-credentials: true
+```
+
+---
+
+## 4. Компонент JwtTokenProvider
+
+`JwtTokenProvider` является утилитным классом, инкапсулирующим всю логику работы с JWT токенами. Он выполняет три ключевые функции: генерацию токенов с цифровой подписью, валидацию подписи и срока действия полученных токенов, а также извлечение пользовательских данных (claims) из payload токена.
+
+Для подписи токенов используется алгоритм **HS512** (HMAC with SHA-512). Этот симметричный алгоритм был выбран вместо HS256 благодаря более высокой криптостойкости — использует 512-битный хеш вместо 256-битного, что обеспечивает дополнительную защиту от возможных атак на подпись. Секретный ключ никогда не передается в токене и известен только серверу, что гарантирует невозможность подделки токена без знания ключа.
+
+Важной особенностью реализации является минималистичный payload — в токене хранится только ID пользователя (subject), время выдачи (issuedAt) и время истечения (expiration). Никакие чувствительные данные (пароль, email, роли) не включаются в токен, что снижает риски при компрометации.
+
+### Код JwtTokenProvider.java
+
+```java
+@Component
+@Slf4j
+public class JwtTokenProvider {
+
+    @Value("${jwt.secret}")
+    private String jwtSecret;
+
+    @Value("${jwt.access-token-expiration}")
+    private long jwtAccessTokenExpiration;
+
+    private SecretKey getSigningKey() {
+        byte[] keyBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    public String generateAccessToken(Long userId) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + jwtAccessTokenExpiration);
+
+        return Jwts.builder()
+            .subject(String.valueOf(userId))
+            .issuedAt(now)
+            .expiration(expiryDate)
+            .signWith(getSigningKey(), Jwts.SIG.HS512)  // Явно указываем HS512
+            .compact();
+    }
+
+    public Long getUserIdFromToken(String token) {
+        Claims claims = Jwts.parser()
+            .verifyWith(getSigningKey())
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
+
+        return Long.parseLong(claims.getSubject());
+    }
+
+    public boolean validateToken(String authToken) {
+        try {
+            Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(authToken);
+            return true;
+        } catch (SignatureException ex) {
+            log.error("Invalid JWT signature");
+        } catch (MalformedJwtException ex) {
+            log.error("Invalid JWT token");
+        } catch (ExpiredJwtException ex) {
+            log.error("Expired JWT token");
+        } catch (UnsupportedJwtException ex) {
+            log.error("Unsupported JWT token");
+        } catch (IllegalArgumentException ex) {
+            log.error("JWT claims string is empty");
+        }
+        return false;
+    }
+}
+```
+
+---
+
+## 5. Фильтр JwtAuthenticationFilter
+
+`JwtAuthenticationFilter` является ключевым компонентом в цепочке фильтров Spring Security. Он наследуется от `OncePerRequestFilter`, что гарантирует выполнение фильтра ровно один раз на каждый HTTP-запрос, даже в случае internal forwards или includes.
+
+Фильтр перехватывает каждый входящий запрос **до того**, как он достигнет контроллера, и выполняет следующую последовательность действий: извлечение JWT токена из заголовка `Authorization: Bearer <token>`, валидацию токена через `JwtTokenProvider`, извлечение ID пользователя из токена, загрузку полных данных пользователя из БД (включая роли), создание объекта `Authentication` и установку его в `SecurityContextHolder`.
+
+### Код JwtAuthenticationFilter.java
+
+```java
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenProvider tokenProvider;
+    private final UserDetailsServiceImpl userDetailsService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
+        try {
+            // 1. Извлечение JWT токена из заголовка Authorization
+            String jwt = getJwtFromRequest(request);
+
+            // 2. Проверка наличия и валидности токена
+            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+                // 3. Извлечение userId из токена
+                Long userId = tokenProvider.getUserIdFromToken(jwt);
+
+                // 4. Загрузка полных данных пользователя из БД
+                UserDetails userDetails = userDetailsService.loadUserById(userId);
+                
+                // 5. Создание объекта Authentication
+                UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(
+                        userDetails, 
+                        null, 
+                        userDetails.getAuthorities()
+                    );
+                authentication.setDetails(
+                    new WebAuthenticationDetailsSource().buildDetails(request)
+                );
+
+                // 6. Установка Authentication в SecurityContext
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.debug("Set authentication for user: {}", userId);
+            }
+        } catch (Exception ex) {
+            log.error("Could not set user authentication in security context", ex);
+        }
+
+        // 7. Передача запроса дальше по цепочке фильтров
+        filterChain.doFilter(request, response);
+    }
+
+    private String getJwtFromRequest(HttpServletRequest request) {
+        String bearerToken = request.getHeader("Authorization");
+        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
+            return bearerToken.substring(7);  // Удаляем префикс "Bearer "
+        }
+        return null;
+    }
+}
+```
+
+---
+
+## 6. Сервис AuthService
+
+Компонент `AuthService` реализует бизнес-логику всех операций аутентификации и служит координационным слоем между контроллерами (presentation layer) и низкоуровневыми сервисами безопасности. Он инкапсулирует сложную логику взаимодействия с `AuthenticationManager`, `JwtTokenProvider` и `RefreshTokenService`.
+
+Основные обязанности сервиса включают: проверку учетных данных (credentials) при входе через делегирование в Spring Security, генерацию пары access и refresh токенов, обновление времени последнего входа пользователя для аудита, обновление access токена с использованием refresh токена, и удаление refresh токена при выходе из системы.
+
+### Код AuthService.java
+
+```java
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class AuthService {
+
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenProvider tokenProvider;
+    private final RefreshTokenService refreshTokenService;
+    private final UserRepository userRepository;
+
+    @Transactional
+    public JwtResponse login(LoginRequest loginRequest) {
+        // 1. Аутентификация через Spring Security
+        Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(
+                loginRequest.getUsername(),
+                loginRequest.getPassword()
+            )
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        // 2. Получение аутентифицированного пользователя
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+
+        // 3. Генерация access token
+        String accessToken = tokenProvider.generateAccessToken(authentication);
+
+        // 4. Получение полного объекта User из БД
+        User user = userRepository.findById(userPrincipal.getId())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // 5. Удаление старых refresh токенов (single session)
+        refreshTokenService.deleteByUser(user);
+
+        // 6. Создание нового refresh token
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
+
+        // 7. Обновление времени последнего входа
+        user.setLastLogin(LocalDateTime.now());
+        userRepository.save(user);
+
+        log.info("User {} logged in successfully", user.getUsername());
+
+        // 8. Формирование ответа с токенами
+        return JwtResponse.builder()
+            .accessToken(accessToken)
+            .refreshToken(refreshToken.getToken())
+            .tokenType("Bearer")
+            .expiresIn(tokenProvider.getAccessTokenExpiration() / 1000)
+            .user(JwtResponse.UserInfo.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .role(user.getRole())
+                .companyId(user.getCompany() != null ? user.getCompany().getId() : null)
+                .build())
+            .build();
+    }
+
+    @Transactional
+    public JwtResponse refreshToken(RefreshTokenRequest request) {
+        String requestRefreshToken = request.getRefreshToken();
+
+        return refreshTokenService.findByToken(requestRefreshToken)
+            .map(refreshTokenService::verifyExpiration)  // Проверка срока действия
+            .map(RefreshToken::getUser)
+            .map(user -> {
+                // Генерация нового access token
+                String newAccessToken = tokenProvider.generateAccessToken(user.getId());
+                
+                log.info("Access token refreshed for user {}", user.getUsername());
+
+                return JwtResponse.builder()
+                    .accessToken(newAccessToken)
+                    .refreshToken(requestRefreshToken)  // Refresh token не меняется
+                    .tokenType("Bearer")
+                    .expiresIn(tokenProvider.getAccessTokenExpiration() / 1000)
+                    .build();
+            })
+            .orElseThrow(() -> new TokenRefreshException(
+                requestRefreshToken, 
+                "Refresh token not found"
+            ));
+    }
+
+    @Transactional
+    public void logout(RefreshTokenRequest request) {
+        refreshTokenService.deleteByToken(request.getRefreshToken());
+        SecurityContextHolder.clearContext();
+        log.info("User logged out successfully");
+    }
+}
+```
+
+---
+
+## 7. Процесс аутентификации (Login Flow)
+
+Процесс входа пользователя в систему представляет собой многоступенчатый механизм, обеспечивающий надежную проверку подлинности. При успешной аутентификации пользователь получает пару токенов (access и refresh), которые сохраняются на стороне клиента и используются для всех последующих запросов к API.
+
+В процессе аутентификации задействовано множество компонентов Spring Security и кастомных классов приложения, каждый из которых выполняет свою специфическую роль в общей цепочке проверки подлинности. Вся цепочка реализована как транзакционная операция, что гарантирует атомарность — либо все шаги выполняются успешно, либо изменения откатываются.
+
+### Диаграмма последовательности Login Flow
+
+```
+┌──────┐                  ┌────────────────┐                ┌───────────────┐
+│Client│                  │AuthController  │                │  AuthService  │
+└──┬───┘                  └───────┬────────┘                └───────┬───────┘
+   │                              │                                 │
+   │ POST /api/auth/login         │                                 │
+   │ {username, password}         │                                 │
+   │─────────────────────────────>│                                 │
+   │                              │                                 │
+   │                              │ @Valid валидация                │
+   │                              │ LoginRequest                    │
+   │                              │                                 │
+   │                              │ login(LoginRequest)             │
+   │                              │────────────────────────────────>│
+   │                              │                                 │
+   │                              │                       ┌─────────┴─────────┐
+   │                              │                       │AuthenticationManager│
+   │                              │                       └─────────┬─────────┘
+   │                              │  authenticate()                 │
+   │                              │ ────────────────────────────────>│
+   │                              │                                 │
+   │                              │                       ┌─────────┴──────────┐
+   │                              │                       │UserDetailsServiceImpl│
+   │                              │                       └─────────┬──────────┘
+   │                              │ loadUserByUsername()            │
+   │                              │ ────────────────────────────────>│
+   │                              │                                 │
+   │                              │                                 │ SELECT * FROM user
+   │                              │                                 │ WHERE username = ?
+   │                              │                                 │
+   │                              │  UserPrincipal                  │
+   │                              │ <────────────────────────────────│
+   │                              │                                 │
+   │                              │  BCrypt.matches()               │
+   │                              │ ────────────────────────────────>│
+   │                              │                                 │
+   │                              │  Authentication (success)       │
+   │                              │ <────────────────────────────────│
+   │                              │                                 │
+   │                              │                      ┌──────────┴──────────┐
+   │                              │                      │ JwtTokenProvider    │
+   │                              │                      └──────────┬──────────┘
+   │                              │  generateAccessToken(userId)    │
+   │                              │ ────────────────────────────────>│
+   │                              │                                 │
+   │                              │  JWT token (HS512 signed)       │
+   │                              │ <────────────────────────────────│
+   │                              │                                 │
+   │                              │                    ┌────────────┴──────────┐
+   │                              │                    │RefreshTokenService    │
+   │                              │                    └────────────┬──────────┘
+   │                              │  createRefreshToken(user)       │
+   │                              │ ────────────────────────────────>│
+   │                              │                                 │
+   │                              │                                 │ INSERT INTO refresh_token
+   │                              │                                 │ (user_id, token, expiry_date)
+   │                              │                                 │
+   │                              │  RefreshToken (UUID)            │
+   │                              │ <────────────────────────────────│
+   │                              │                                 │
+   │                              │                                 │ UPDATE user
+   │                              │                                 │ SET last_login = NOW()
+   │                              │                                 │
+   │                              │  JwtResponse                    │
+   │                              │ <────────────────────────────────│
+   │                              │                                 │
+   │  200 OK                      │                                 │
+   │  {                           │                                 │
+   │    "accessToken": "eyJ...",  │                                 │
+   │    "refreshToken": "uuid",   │                                 │
+   │    "tokenType": "Bearer",    │                                 │
+   │    "expiresIn": 900,         │                                 │
+   │    "user": {...}             │                                 │
+   │  }                           │                                 │
+   │<─────────────────────────────│                                 │
+   │                              │                                 │
+```
+
+### Классы, участвующие в процессе аутентификации
+
+**1. AuthController** (`controller/AuthController.java`)  
+**Роль:** REST endpoint, точка входа для HTTP запросов аутентификации.  
+**Ответственность:** Валидация входных данных через `@Valid`, делегирование в `AuthService`, формирование HTTP ответа.
+
+**2. LoginRequest** (DTO)  
+**Роль:** Data Transfer Object для входных данных.  
+**Поля:** `username` (String), `password` (String) с аннотациями валидации `@NotBlank`.
+
+**3. AuthService** (`service/AuthService.java`)  
+**Роль:** Координатор процесса аутентификации, бизнес-логика.  
+**Методы:** `login()`, `refreshToken()`, `logout()`.
+
+**4. AuthenticationManager** (Spring Security)  
+**Роль:** Центральный компонент проверки credentials.  
+**Реализация:** `ProviderManager` делегирует в `DaoAuthenticationProvider`.
+
+**5. DaoAuthenticationProvider** (Spring Security)  
+**Роль:** Провайдер аутентификации для username/password.  
+**Действия:** Загружает пользователя через `UserDetailsService`, проверяет пароль через `PasswordEncoder`.
+
+**6. UserDetailsServiceImpl** (`security/UserDetailsServiceImpl.java`)  
+**Роль:** Загрузка пользователя из БД.  
+**Методы:** `loadUserByUsername(String username)`, `loadUserById(Long id)`.
+
+```java
+@Service
+@RequiredArgsConstructor
+public class UserDetailsServiceImpl implements UserDetailsService {
+    private final UserRepository userRepository;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new UsernameNotFoundException(
+                "User not found: " + username));
+        
+        if (!user.getIsActive()) {
+            throw new UsernameNotFoundException("User inactive: " + username);
+        }
+
+        return UserPrincipal.create(user);
+    }
+}
+```
+
+**7. UserRepository** (Spring Data JPA)  
+**Роль:** Доступ к таблице `user` в БД.  
+**Методы:** `findByUsername(String)`, `findById(Long)`, `existsByUsername(String)`.
+
+**8. User** (`model/User.java`)  
+**Роль:** JPA Entity, доменная модель пользователя.  
+**Поля:** id, username, email, passwordHash, role, company, isActive, createdAt, lastLogin.
+
+**9. UserPrincipal** (`security/UserPrincipal.java`)  
+**Роль:** Адаптер между доменной моделью `User` и Spring Security `UserDetails`.  
+**Методы:** Реализует `getAuthorities()` — преобразует роль в `GrantedAuthority`.
+
+```java
+@Data
+@AllArgsConstructor
+public class UserPrincipal implements UserDetails {
+    private Long id;
+    private String username;
+    private String email;
+    private String password;
+    private Collection<? extends GrantedAuthority> authorities;
+
+    public static UserPrincipal create(User user) {
+        List<GrantedAuthority> authorities = List.of(
+            new SimpleGrantedAuthority("ROLE_" + user.getRole().name())
+        );
+
+        return new UserPrincipal(
+            user.getId(),
+            user.getUsername(),
+            user.getEmail(),
+            user.getPasswordHash(),
+            authorities
+        );
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
+}
+```
+
+**10. PasswordEncoder** (BCryptPasswordEncoder)  
+**Роль:** Проверка пароля.  
+**Метод:** `matches(String rawPassword, String encodedPassword)` — хеширует введенный пароль и сравнивает хеши.
+
+**11. JwtTokenProvider** (`security/jwt/JwtTokenProvider.java`)  
+**Роль:** Генерация access токена.  
+**Метод:** `generateAccessToken(Long userId)` — создает JWT с подписью HS512.
+
+**12. RefreshTokenService** (`service/RefreshTokenService.java`)  
+**Роль:** Управление refresh токенами.  
+**Метод:** `createRefreshToken(User user)` — генерирует UUID и сохраняет в БД.
+
+```java
+public RefreshToken createRefreshToken(User user) {
+    RefreshToken refreshToken = RefreshToken.builder()
+        .user(user)
+        .token(UUID.randomUUID().toString())
+        .expiryDate(LocalDateTime.now().plusSeconds(refreshTokenDurationMs / 1000))
+        .build();
+
+    return refreshTokenRepository.save(refreshToken);
+}
+```
+
+**13. RefreshToken** (`model/RefreshToken.java`)  
+**Роль:** JPA Entity для таблицы `refresh_token`.  
+**Поля:** id, user, token (UUID), expiryDate, createdAt.
+
+**14. RefreshTokenRepository** (Spring Data JPA)  
+**Роль:** Доступ к таблице `refresh_token`.  
+**Методы:** `save()`, `findByToken()`, `deleteByUser()`.
+
+**15. JwtResponse** (DTO)  
+**Роль:** Response объект с токенами и информацией о пользователе.  
+**Поля:** accessToken, refreshToken, tokenType ("Bearer"), expiresIn (900 секунд), user (UserInfo DTO).
+
+---
+
+## 8. Процесс авторизации (Protected Request Flow)
+
+После успешного входа каждый запрос к защищенным endpoints должен содержать JWT токен в заголовке `Authorization`. Процесс проверки прав доступа выполняется в несколько этапов: сначала валидация токена и установка Authentication через `JwtAuthenticationFilter`, затем проверка роли пользователя через аннотацию `@PreAuthorize` на уровне метода контроллера.
+
+Важно понимать разницу между **аутентификацией** (authentication — кто ты?) и **авторизацией** (authorization — что ты можешь делать?). Аутентификация выполняется фильтром на основе JWT токена, авторизация — Spring Security на основе ролей в `Authentication.authorities`.
+
+### Диаграмма последовательности Authorization Flow
+
+```
+┌──────┐           ┌─────────────────────┐     ┌───────────────────┐    ┌─────────────┐
+│Client│           │JwtAuthFilter        │     │JwtTokenProvider   │    │UserController│
+└──┬───┘           └──────────┬──────────┘     └─────────┬─────────┘    └──────┬──────┘
+   │                          │                          │                     │
+   │ GET /api/users           │                          │                     │
+   │ Authorization: Bearer... │                          │                     │
+   │─────────────────────────>│                          │                     │
+   │                          │                          │                     │
+   │                          │ validateToken(jwt)       │                     │
+   │                          │─────────────────────────>│                     │
+   │                          │                          │                     │
+   │                          │ true (valid)             │                     │
+   │                          │<─────────────────────────│                     │
+   │                          │                          │                     │
+   │                          │ getUserIdFromToken(jwt)  │                     │
+   │                          │─────────────────────────>│                     │
+   │                          │                          │                     │
+   │                          │ userId = 1               │                     │
+   │                          │<─────────────────────────│                     │
+   │                          │                          │                     │
+   │              ┌───────────┴─────────────┐            │                     │
+   │              │UserDetailsServiceImpl   │            │                     │
+   │              └───────────┬─────────────┘            │                     │
+   │                          │ loadUserById(1)          │                     │
+   │                          │────────────────>         │                     │
+   │                          │                          │                     │
+   │                          │ UserPrincipal            │                     │
+   │                          │ (authorities: ROLE_ADMIN)│                     │
+   │                          │<────────────────         │                     │
+   │                          │                          │                     │
+   │                          │ SecurityContext.setAuth()│                     │
+   │                          │                          │                     │
+   │                          │                          │                     │
+   │                          ├──────────────────────────┼────────────────────>│
+   │                          │                          │                     │
+   │                          │          @PreAuthorize("hasRole('ADMIN')")    │
+   │                          │                          │  ✓ Проверка роли   │
+   │                          │                          │                     │
+   │                          │                          │  getAllUsers()      │
+   │                          │                          │                     │
+   │                          │                          │  ┌──────────────────┴──┐
+   │                          │                          │  │UserRepository       │
+   │                          │                          │  └──────────────────┬──┘
+   │                          │                          │   SELECT * FROM user │
+   │                          │                          │  <──────────────────  │
+   │                          │                          │                     │
+   │  200 OK                  │                          │                     │
+   │  [ {...users...} ]       │                          │                     │
+   │<─────────────────────────┼──────────────────────────┼─────────────────────│
+   │                          │                          │                     │
+```
+
+### Классы, участвующие в процессе авторизации
+
+**1. JwtAuthenticationFilter**  
+Выполняет первичную валидацию токена и устанавливает `Authentication` в `SecurityContext`. Без этого шага все запросы будут отклонены с 401.
+
+**2. JwtTokenProvider**  
+Валидирует JWT (подпись + expiration) и извлекает `userId` из токена.
+
+**3. UserDetailsServiceImpl**  
+Загружает полные данные пользователя из БД, включая роль.
+
+**4. UserPrincipal**  
+Преобразует роль пользователя в `GrantedAuthority` с префиксом `ROLE_` (например, `ROLE_ADMIN`). Этот префикс требуется для `@PreAuthorize("hasRole('...')")`.
+
+**5. SecurityContextHolder** (Spring Security)  
+Thread-local хранилище для `Authentication`. Все компоненты Spring Security получают доступ к текущему пользователю через него.
+
+**6. MethodSecurityExpressionHandler** (Spring Security)  
+Обрабатывает SpEL-выражения в `@PreAuthorize`. Проверяет, есть ли у пользователя требуемая роль.
+
+**7. UserController**  
+Содержит защищенные методы с аннотацией `@PreAuthorize`.
+
+```java
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+public class UserController {
+
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<User>> getAllUsers() {
+        // Выполняется только если роль = ADMIN
+        return ResponseEntity.ok(userRepository.findAll());
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+        // Выполняется если роль = ADMIN или MANAGER
+        return ResponseEntity.ok(userRepository.findById(id).orElseThrow());
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<User> getCurrentUser(
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        // Любой аутентифицированный пользователь
+        return ResponseEntity.ok(userRepository.findById(currentUser.getId()).orElseThrow());
+    }
+}
+```
+
+**8. GlobalExceptionHandler**  
+Обрабатывает исключение `AccessDeniedException` (недостаточно прав) и возвращает HTTP 403 Forbidden.
+
+```java
+@ExceptionHandler(AccessDeniedException.class)
+public ResponseEntity<Map<String, Object>> handleAccessDeniedException(AccessDeniedException ex) {
+    Map<String, Object> response = new HashMap<>();
+    response.put("timestamp", LocalDateTime.now());
+    response.put("status", HttpStatus.FORBIDDEN.value());
+    response.put("error", "Forbidden");
+    response.put("message", "You don't have permission to access this resource");
+    
+    return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+}
+```
+
+---
+
+## 9. Ролевая модель доступа (RBAC)
+
+Система использует ролевую модель управления доступом (RBAC - Role-Based Access Control) с четырьмя ролями: **ADMIN**, **MANAGER**, **MODERATOR**, **SPECIALIST**. Каждая роль имеет строго определенный набор прав, что обеспечивает принцип наименьших привилегий (Principle of Least Privilege) — пользователь имеет только те права, которые необходимы для выполнения его обязанностей.
+
+Роли реализованы как ENUM в PostgreSQL (тип `user_role`) и Java (enum `UserRole`). Это обеспечивает типобезопасность на уровне БД и приложения. Доступ к endpoints контролируется аннотацией `@PreAuthorize` на уровне методов контроллеров, что обеспечивает декларативный и гранулярный контроль доступа.
+
+### Матрица доступа к endpoints
+
+| Endpoint | ADMIN | MANAGER | MODERATOR | SPECIALIST | Описание |
+|----------|-------|---------|-----------|------------|----------|
+| **Аутентификация** |
+| POST /auth/login | ✅ | ✅ | ✅ | ✅ | Вход в систему |
+| POST /auth/refresh | ✅ | ✅ | ✅ | ✅ | Обновление токена |
+| POST /auth/logout | ✅ | ✅ | ✅ | ✅ | Выход из системы |
+| **Пользователи** |
+| GET /users/me | ✅ | ✅ | ✅ | ✅ | Свой профиль |
+| GET /users | ✅ | ❌ | ❌ | ❌ | Список всех пользователей |
+| GET /users/{id} | ✅ | ✅ | ❌ | ❌ | Профиль по ID |
+| POST /users | ✅ | ❌ | ❌ | ❌ | Создание пользователя |
+| PUT /users/{id}/reset-password | ✅ | ❌ | ❌ | ❌ | Сброс пароля администратором |
+| PUT /users/me/password | ✅ | ✅ | ✅ | ✅ | Смена своего пароля |
+
+### Примеры использования @PreAuthorize
+
+**Только ADMIN:**
+```java
+@PreAuthorize("hasRole('ADMIN')")
+@GetMapping("/users")
+public List<User> getAllUsers() {
+    return userRepository.findAll();
+}
+
+@PreAuthorize("hasRole('ADMIN')")
+@PostMapping("/users")
+public User createUser(@RequestBody CreateUserRequest request) {
+    return userService.createUser(request);
+}
+```
+
+**ADMIN или MANAGER:**
+```java
+@PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+@GetMapping("/users/{id}")
+public User getUserById(@PathVariable Long id) {
+    return userRepository.findById(id).orElseThrow();
+}
+```
+
+**Любой аутентифицированный пользователь:**
+```java
+@GetMapping("/me")
+public User getCurrentUser(@AuthenticationPrincipal UserPrincipal currentUser) {
+    return userRepository.findById(currentUser.getId()).orElseThrow();
+}
+```
+
+**Доступ к своему ресурсу:**
+```java
+@PreAuthorize("#userId == authentication.principal.id or hasRole('ADMIN')")
+@GetMapping("/users/{userId}/tasks")
+public List<Task> getUserTasks(@PathVariable Long userId) {
+    // Пользователь может видеть только свои задачи, ADMIN видит все
+    return taskRepository.findByUserId(userId);
+}
+```
+
+---
+
+## 10. Результаты
+
+В ходе реализации системы аутентификации и авторизации были достигнуты следующие результаты:
+
+**1. Шифрование паролей**  
+Реализовано необратимое хеширование паролей с использованием алгоритма **BCrypt** (10 раундов). Каждый пароль автоматически получает уникальную соль, встроенную в хеш, что исключает возможность использования rainbow tables для взлома. Даже при компрометации базы данных злоумышленники не смогут восстановить исходные пароли.
+
+**2. Двухуровневая система токенов**  
+Реализован механизм **access + refresh токенов**, обеспечивающий баланс между безопасностью и удобством. Access токен живет 15 минут, минимизируя окно уязвимости при перехвате. Refresh токен живет 7 дней, позволяя пользователю работать без постоянного ввода пароля. Refresh токены хранятся в БД и могут быть отозваны.
+
+**3. Настройка CORS**  
+Политика CORS настроена для взаимодействия только с доверенным frontend-доменом (`http://localhost:3000`). Это предотвращает несанкционированный доступ к API из сторонних веб-приложений. Настройка включает разрешенные методы (GET, POST, PUT, DELETE), заголовки и credentials.
+
+**4. Защита от CSRF**  
+CSRF-атаки исключены благодаря использованию stateless JWT аутентификации. Токены передаются в заголовке `Authorization`, а не в cookies, что делает невозможным выполнение CSRF атак (браузер не отправляет заголовки автоматически при cross-origin запросах).
+
+**5. Защита от SQL Injection**  
+Все запросы к базе данных выполняются через **JPA с Prepared Statements**, что автоматически экранирует пользовательский ввод и предотвращает SQL инъекции. Spring Data JPA генерирует безопасные запросы на основе сигнатур методов.
+
+**6. Ролевая модель доступа (RBAC)**  
+Реализована ролевая модель с 4 ролями (ADMIN, MANAGER, MODERATOR, SPECIALIST) и детальным контролем доступа к каждому endpoint через аннотацию `@PreAuthorize`. Обеспечен принцип наименьших привилегий — пользователь имеет только необходимые права.
+
+**7. Централизованное управление пользователями**  
+Только администратор может создавать новых пользователей и сбрасывать пароли, что обеспечивает контроль доступа и предотвращает самостоятельную регистрацию. Любой пользователь может сменить свой пароль, зная текущий.
+
+**8. Аудит и логирование**  
+Все критические операции (login, logout, password reset, password change) логируются с указанием пользователя и времени. Поле `last_login` в таблице `user` позволяет отслеживать последнюю активность.
+
+---
+
+## 11. Тестирование
+
+Все endpoints системы аутентификации и управления пользователями были протестированы с использованием **Postman**. Ниже представлены примеры успешных и неуспешных сценариев.
+
+### Тестовые пользователи
+
+| Username | Password | Role | Email | Описание |
+|----------|----------|------|-------|----------|
+| admin | password123 | ADMIN | admin@example.com | Полный доступ |
+| manager | password123 | MANAGER | manager@example.com | Управление и отчеты |
+| moderator | password123 | MODERATOR | moderator@example.com | Модерация контента |
+| specialist | password123 | SPECIALIST | specialist@example.com | Работа с задачами |
+
+### Сценарии тестирования
+
+**1. Успешный Login (POST /api/auth/login)**
+- Request: `{"username": "admin", "password": "password123"}`
+- Response: 200 OK, получены accessToken и refreshToken
+- Результат: ✅ Успешно
+
+**2. Login с неверным паролем**
+- Request: `{"username": "admin", "password": "wrong"}`
+- Response: 401 Unauthorized, "Invalid username or password"
+- Результат: ✅ Корректная обработка ошибки
+
+**3. GET /api/users/me с валидным токеном**
+- Headers: `Authorization: Bearer <accessToken>`
+- Response: 200 OK, данные пользователя (без passwordHash)
+- Результат: ✅ Успешно, поле passwordHash скрыто
+
+**4. GET /api/users/me без токена**
+- Headers: (без Authorization)
+- Response: 401 Unauthorized, "Full authentication is required"
+- Результат: ✅ Корректная обработка
+
+**5. GET /api/users (ADMIN успешно)**
+- User: admin (ROLE_ADMIN)
+- Response: 200 OK, список всех пользователей
+- Результат: ✅ Успешно
+
+**6. GET /api/users (MANAGER получает 403)**
+- User: manager (ROLE_MANAGER)
+- Response: 403 Forbidden, "You don't have permission"
+- Результат: ✅ Корректная проверка роли
+
+**7. Refresh Token (POST /api/auth/refresh)**
+- Request: `{"refreshToken": "<uuid>"}`
+- Response: 200 OK, новый accessToken
+- Результат: ✅ Успешно
+
+**8. Logout (POST /api/auth/logout)**
+- Request: `{"refreshToken": "<uuid>"}`
+- Response: 200 OK, "Logout successful"
+- Результат: ✅ Токен удален из БД
+
+**9. Создание пользователя (POST /api/users) - ADMIN**
+- Request: CreateUserRequest с валидными данными
+- Response: 201 Created, новый пользователь
+- Результат: ✅ Успешно
+
+**10. Создание с существующим username**
+- Request: username = "admin" (уже существует)
+- Response: 400 Bad Request, "Username already exists"
+- Результат: ✅ Валидация работает
+
+**11. Admin Reset Password (PUT /api/users/2/reset-password)**
+- User: admin
+- Request: `{"newPassword": "newPass123"}`
+- Response: 200 OK, "Password reset successfully"
+- Результат: ✅ Успешно, пользователь может войти с новым паролем
+
+**12. Change Password успешно (PUT /api/users/me/password)**
+- Request: `{"currentPassword": "password123", "newPassword": "newPass456"}`
+- Response: 200 OK, "Password changed successfully"
+- Результат: ✅ Успешно
+
+**13. Change Password с неверным текущим паролем**
+- Request: `{"currentPassword": "wrong", "newPassword": "newPass456"}`
+- Response: 400 Bad Request, "Current password is incorrect"
+- Результат: ✅ Корректная обработка ошибки
+
+### Проверка безопасности
+
+- ✅ **BCrypt хеширование**: Пароли в БД хранятся в виде `$2a$10$...`, невозможно восстановить оригинал
+- ✅ **JWT подпись**: Изменение payload токена делает подпись невалидной (403 Forbidden)
+- ✅ **Expiration токенов**: Истекший access token возвращает 401 Unauthorized
+- ✅ **Refresh token в БД**: После logout refresh token не работает (403 Forbidden)
+- ✅ **CORS**: Запросы с других доменов блокируются браузером
+- ✅ **@PreAuthorize**: Попытка доступа с недостаточными правами возвращает 403 Forbidden
 
 ### Оценка качества кода
 
