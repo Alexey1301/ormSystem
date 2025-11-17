@@ -49,8 +49,7 @@
 	1. [Unit-тесты](#unit-тесты)
 	2. [Интеграционные тесты](#интеграционные-тесты)
 6. [Установка и запуск](#установка-и-запуск)
-	1. [Конфигурация приложения](#конфигурация-приложения)
-	2. [Развертывание системы](#развертывание-системы)
+	1. [Развертывание системы](#развертывание-системы)
 
 ---
 
@@ -1187,16 +1186,317 @@ CSRF-атаки исключены благодаря использованию
 
 ## **Установка и запуск**
 
-### Конфигурация приложения
-
-Для запуска системы необходимо настроить:
-- Подключение к PostgreSQL
-- Ключи API для платформ отзывов
-- Токен Telegram бота для уведомлений
-
 ### Развертывание системы
 
-Система может быть развернута как традиционное Spring Boot приложение или в Docker контейнере.
+### Подготовка к развертыванию
+
+### Получение исходного кода
+
+Система поставляется в виде исходного кода, размещенного в репозитории Git. Для получения кода необходимо выполнить:
+
+```bash
+git clone <https://github.com/Alexey1301/ormSystem.git>
+cd ormSystem
+```
+
+### Развертывание через Docker
+
+#### Требования к системе
+
+Для Docker развертывания необходимо установить только:
+
+- **Docker** версии 20.10 или выше
+- **Docker Compose** версии 2.0 или выше
+- Минимум **4 GB RAM**
+- Минимум **10 GB** свободного места на диске
+
+**Установка Docker Desktop:**
+– Windows/macOS: https://www.docker.com/products/docker-desktop/:
+– Linux: «sudo apt-get install docker.io docker-compose».
+
+### Подготовка
+
+### Настройка переменных окружения
+
+#### Через файл `.env`
+
+Создать файл `.env` в корне проекта:
+
+```bash
+POSTGRES_PASSWORD=your_secure_password
+JWT_SECRET=your-secret-key-here
+BACKEND_PORT=8080
+FRONTEND_PORT=3000
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:80
+REACT_APP_API_URL=http://localhost:8080/api
+```
+
+**Генерация JWT секрета:**
+```bash
+openssl rand -base64 32
+```
+
+### Запуск системы
+
+#### Запуск всех сервисов
+
+```bash
+docker-compose up -d
+```
+
+Эта команда выполняет:
+1. Скачивание базовых образов (если их нет):
+   - `postgres:15-alpine` (PostgreSQL 15) — готовый официальный образ
+   - `maven:3.9-eclipse-temurin-21` (Java 21 + Maven) — для сборки Backend
+   - `eclipse-temurin:21-jre-alpine` (Java 21 JRE) — для финального Backend образа
+   - `node:20-alpine` (Node.js 20) — для сборки Frontend
+   - `nginx:alpine` (Nginx) — для финального Frontend образа
+
+2. Сборку образов (только для Backend и Frontend):
+   - **Backend образ** — собирает Spring Boot приложение из `backend/Dockerfile`
+   - **Frontend образ** — собирает React приложение из `frontend/Dockerfile`
+   - **PostgreSQL** — не требует сборки, используется готовый образ
+
+3. Создание и запуск контейнеров:
+   - PostgreSQL контейнер (из готового образа)
+   - Backend контейнер (из собранного образа)
+   - Frontend контейнер (из собранного образа)
+
+4. Автоматическую инициализацию базы данных:
+   - При первом запуске PostgreSQL автоматически выполняет SQL скрипты из `/docker-entrypoint-initdb.d/`
+   - Применяется схема из `database/schema.sql`
+   - Загружаются тестовые данные из `database/test-data.sql`
+   - При последующих запусках скрипты не выполняются (БД уже инициализирована)
+
+#### Проверка статуса
+
+```bash
+docker-compose ps
+```
+
+Ожидаемый вывод:
+```
+NAME                  STATUS              PORTS
+reputation-backend    Up (healthy)        0.0.0.0:8080->8080/tcp
+reputation-db         Up (healthy)        0.0.0.0:5432->5432/tcp
+reputation-frontend   Up (healthy)        0.0.0.0:3000->80/tcp
+```
+
+#### Просмотр логов
+
+```bash
+# Все сервисы
+docker-compose logs -f
+
+# Только backend
+docker-compose logs -f backend
+
+# Только frontend
+docker-compose logs -f frontend
+```
+
+### Проверка работоспособности
+
+Подождать 30-60 секунд для полной инициализации всех сервисов.
+
+**Проверка health checks:**
+```bash
+# Backend
+curl http://localhost:8080/api/actuator/health
+
+# Frontend
+curl http://localhost:3000/health
+```
+
+**Доступ к приложению:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080/api
+- PostgreSQL: localhost:5432
+
+### Управление контейнерами
+
+#### Остановка
+
+```bash
+docker-compose down
+```
+
+#### Перезапуск
+
+```bash
+docker-compose restart
+```
+
+#### Обновление системы
+
+```bash
+# Остановка
+docker-compose down
+
+# Обновление кода
+git pull origin main
+
+# Пересборка и запуск
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Резервное копирование
+
+#### Создание бэкапа БД
+
+```bash
+docker-compose exec postgres pg_dump -U postgres reputation_db > backup_$(date +%Y%m%d_%H%M%S).sql
+```
+
+#### Восстановление из бэкапа
+
+```bash
+docker-compose exec -T postgres psql -U postgres -d reputation_db < backup_YYYYMMDD_HHMMSS.sql
+```
+
+### Структура Docker файлов
+
+Для развертывания системы через Docker были созданы следующие файлы:
+
+#### `docker-compose.yml` (корневой каталог)
+
+**Назначение:** Главный файл оркестрации всех сервисов системы.
+
+**Функции:**
+- Определяет три сервиса: `postgres`, `backend`, `frontend`
+- Для `postgres`: использует готовый образ `postgres:15-alpine` (не требует сборки)
+- Для `backend`: указывает путь к `backend/Dockerfile` для сборки образа
+- Для `frontend`: указывает путь к `frontend/Dockerfile` для сборки образа
+- Настраивает сеть `reputation-network` для связи между контейнерами
+- Создает именованный volume `postgres_data` для персистентного хранения данных БД
+- Настраивает переменные окружения для каждого сервиса
+- Определяет зависимости между сервисами (`depends_on`)
+- Настраивает health checks для мониторинга состояния контейнеров
+- Пробрасывает порты на хост-машину для доступа извне
+- Монтирует SQL скрипты в `/docker-entrypoint-initdb.d/` для автоматической инициализации БД
+
+**Ключевые настройки:**
+- PostgreSQL: порт 5432, автоматическая инициализация БД
+- Backend: порт 8080, ожидает готовности PostgreSQL
+- Frontend: порт 3000 (пробрасывается на 80 внутри контейнера), ожидает готовности Backend
+
+#### `backend/Dockerfile`
+
+**Назначение:** Инструкции для сборки Docker образа Backend приложения.
+
+**Структура (многоэтапная сборка):**
+
+**Этап 1 - Сборка:**
+- Использует образ `maven:3.9-eclipse-temurin-21` (содержит Java 21 JDK + Maven 3.9)
+- Копирует `pom.xml` и загружает зависимости (кэширование для ускорения последующих сборок)
+- Копирует исходный код
+- Выполняет `mvn clean package` для создания JAR файла
+
+**Этап 2 - Финальный образ:**
+- Использует образ `eclipse-temurin:21-jre-alpine` (содержит только Java 21 JRE, минимальный размер)
+- Создает непривилегированного пользователя `spring` для безопасности
+- Копирует JAR файл из этапа сборки
+- Настраивает переменные окружения для JVM (`JAVA_OPTS`)
+- Открывает порт 8080
+- Настраивает health check для проверки работоспособности
+- Запускает приложение через `java -jar app.jar`
+
+#### `frontend/Dockerfile`
+
+**Назначение:** Инструкции для сборки Docker образа Frontend приложения.
+
+**Структура (многоэтапная сборка):**
+
+**Этап 1 - Сборка:**
+- Использует образ `node:20-alpine` (содержит Node.js 20 + npm)
+- Копирует `package.json` и `package-lock.json`
+- Устанавливает зависимости через `npm ci`
+- Копирует исходный код React приложения
+- Принимает build argument `REACT_APP_API_URL` для настройки API endpoint
+- Выполняет `npm run build` для создания статических файлов
+
+**Этап 2 - Финальный образ:**
+- Использует образ `nginx:alpine` (содержит Nginx веб-сервер)
+- Копирует собранные статические файлы из этапа сборки в `/usr/share/nginx/html`
+- Копирует конфигурацию Nginx (`nginx.conf`)
+- Открывает порт 80
+- Настраивает health check
+- Запускает Nginx в foreground режиме
+
+#### PostgreSQL (без Dockerfile)
+
+**Назначение:** База данных PostgreSQL использует готовый официальный образ.
+
+**Механизм автоматической инициализации:**
+
+В `docker-compose.yml` настроено монтирование SQL скриптов:
+```yaml
+volumes:
+  - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+  - ./database/test-data.sql:/docker-entrypoint-initdb.d/02-test-data.sql:ro
+```
+
+#### `frontend/nginx.conf`
+
+**Назначение:** Конфигурация веб-сервера Nginx для отдачи статических файлов React приложения.
+
+**Основные настройки:**
+
+1. **SPA Routing:**
+   ```nginx
+   location / {
+       try_files $uri $uri/ /index.html;
+   }
+   ```
+   - Обеспечивает корректную работу React Router
+   - Все запросы, не соответствующие файлам, перенаправляются на `index.html`
+
+2. **Gzip сжатие:**
+   - Включает сжатие для уменьшения размера передаваемых данных
+   - Поддерживает сжатие для текстовых файлов, CSS, JavaScript, JSON
+
+3. **Кэширование статических ресурсов:**
+   ```nginx
+   location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+       expires 1y;
+       add_header Cache-Control "public, immutable";
+   }
+   ```
+   - Кэширует статические файлы на 1 год
+   - Улучшает производительность при повторных посещениях
+
+4. **Security headers:**
+   - `X-Frame-Options: SAMEORIGIN` — защита от clickjacking
+   - `X-Content-Type-Options: nosniff` — предотвращение MIME-sniffing
+   - `X-XSS-Protection: 1; mode=block` — защита от XSS атак
+
+5. **Health check endpoint:**
+   ```nginx
+   location /health {
+       return 200 "healthy\n";
+   }
+   ```
+   - Используется Docker для проверки работоспособности контейнера
+
+**Процесс сборки:**
+
+1. `docker-compose.yml` читается Docker Compose
+2. Для `backend` сервиса:
+   - Читается `backend/Dockerfile`
+   - Применяется `backend/.dockerignore`
+   - Собирается образ с Spring Boot приложением (многоэтапная сборка)
+3. Для `frontend` сервиса:
+   - Читается `frontend/Dockerfile`
+   - Применяется `frontend/.dockerignore`
+   - Копируется `frontend/nginx.conf`
+   - Собирается образ с React приложением и Nginx (многоэтапная сборка)
+4. Для `postgres` сервиса:
+   - **Не требуется сборка образа** — используется готовый официальный образ `postgres:15-alpine`
+   - Образ скачивается из Docker Hub (если его еще нет локально)
+   - Монтируются SQL скрипты (`database/schema.sql` и `database/test-data.sql`) в `/docker-entrypoint-initdb.d/`
+   - При первом запуске PostgreSQL автоматически выполняет эти скрипты для инициализации БД
+
 
 ---
 
