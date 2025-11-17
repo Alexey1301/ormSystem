@@ -1,0 +1,12 @@
+node_modules/
+build/
+.idea
+.vscode
+*.log
+.env
+.env.local
+*.test.js
+*.spec.js
+__tests__/
+coverage/
+

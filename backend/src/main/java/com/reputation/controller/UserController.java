@@ -32,9 +32,8 @@ public class UserController {
     public ResponseEntity<User> getCurrentUser(@AuthenticationPrincipal UserPrincipal currentUser) {
         User user = userRepository.findById(currentUser.getId())
             .orElseThrow(() -> new RuntimeException("User not found"));
-        // Принудительная загрузка Company для избежания LazyInitializationException
         if (user.getCompany() != null) {
-            user.getCompany().getName(); // Инициализация proxy
+            user.getCompany().getName();
         }
         return ResponseEntity.ok(user);
     }
@@ -44,7 +43,6 @@ public class UserController {
     @Transactional(readOnly = true)
     public ResponseEntity<List<User>> getAllUsers() {
         List<User> users = userRepository.findAll();
-        // Инициализация всех company proxy
         users.forEach(user -> {
             if (user.getCompany() != null) {
                 user.getCompany().getName();
@@ -59,7 +57,6 @@ public class UserController {
     public ResponseEntity<User> getUserById(@PathVariable Long id) {
         User user = userRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("User not found"));
-        // Инициализация company proxy
         if (user.getCompany() != null) {
             user.getCompany().getName();
         }
