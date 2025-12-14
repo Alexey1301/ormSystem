@@ -128,24 +128,27 @@
 
 #### Диаграмма пакетов программного средства
 
-
+<img width="616" height="513" alt="image" src="https://github.com/user-attachments/assets/6bbc336b-26ae-4f19-bd74-663862da567a" />
 
 #### Диаграмма развертывания программного средства
 
-
+<img width="408" height="630" alt="image" src="https://github.com/user-attachments/assets/ffb45247-761f-420f-bb3d-1a734ca8e401" />
 
 #### Диаграмма вариантов использования
 
-
+<img width="883" height="502" alt="image" src="https://github.com/user-attachments/assets/a5cd233c-934f-4ddb-a5dd-35653ca48db6" />
 
 #### Диаграмма состояний объекта «Задача»
 
-
+<img width="677" height="629" alt="image" src="https://github.com/user-attachments/assets/d2db6d02-0616-4cbf-8862-a80ff79a6f53" />
 
 #### Диаграмма последовательности процесса работа над задачей
 
+<img width="551" height="678" alt="image" src="https://github.com/user-attachments/assets/e4991645-a30f-4bd7-84e8-e1e97d29b0e8" />
 
 #### Диаграмма активности процесса обработки отзыва 
+
+<img width="315" height="610" alt="image" src="https://github.com/user-attachments/assets/636585f0-03e6-459a-a9c0-ceac91476062" />
 
 ### User-flow диаграммы
 
