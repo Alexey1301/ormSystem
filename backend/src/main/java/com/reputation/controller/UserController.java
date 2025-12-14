@@ -8,6 +8,9 @@ import com.reputation.model.User;
 import com.reputation.repository.UserRepository;
 import com.reputation.security.UserPrincipal;
 import com.reputation.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,6 +25,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
+@Tag(name = "Управление пользователями", description = "API для управления пользователями системы")
+@SecurityRequirement(name = "bearerAuth")
 public class UserController {
 
     private final UserRepository userRepository;

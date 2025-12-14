@@ -1,0 +1,1504 @@
+openapi: 3.0.3
+info:
+  title: Reputation Management System API
+  version: 1.0.0
+  description: |
+    API для системы управления репутацией компании. 
+    Система позволяет автоматизировать сбор, анализ и мониторинг отзывов 
+    о компаниях из различных источников (Яндекс, Google, 2GIS).
+  contact:
+    name: Reputation Management System
+    email: support@reputation-system.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:8080/api
+    description: Локальный сервер разработки
+  - url: https://api.reputation-system.com/api
+    description: Production сервер
+
+tags:
+  - name: Аутентификация
+    description: API для аутентификации и управления токенами
+  - name: Управление пользователями
+    description: API для управления пользователями системы
+  - name: Управление компаниями
+    description: API для управления компаниями
+  - name: Управление источниками
+    description: API для управления источниками отзывов
+  - name: Работа с отзывами
+    description: API для работы с отзывами
+  - name: Управление задачами
+    description: API для управления задачами по работе с отзывами
+  - name: Работа с ответами
+    description: API для работы с ответами на отзывы
+  - name: Работа с комментариями
+    description: API для работы с комментариями к задачам
+  - name: Управление отчетами
+    description: API для генерации и управления отчетами
+  - name: Аналитика
+    description: API для получения аналитических данных
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT токен аутентификации. Получите токен через /auth/login, затем используйте его в формате: Bearer {token}"
+
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: password123
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    JwtResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUzUxMiJ9..."
+        refreshToken:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        tokenType:
+          type: string
+          example: "Bearer"
+        expiresIn:
+          type: integer
+          example: 900
+        user:
+          $ref: '#/components/schemas/UserInfo'
+
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN, MANAGER, MODERATOR, SPECIALIST]
+        companyId:
+          type: integer
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Operation successful"
+
+    CreateUserRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+        - fullName
+        - role
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN, MANAGER, MODERATOR, SPECIALIST]
+        companyId:
+          type: integer
+
+    CreateCompanyRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        industry:
+          type: string
+          maxLength: 100
+        website:
+          type: string
+          maxLength: 255
+
+    UpdateCompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        industry:
+          type: string
+          maxLength: 100
+        website:
+          type: string
+          maxLength: 255
+        isActive:
+          type: boolean
+
+    CompanyResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        industry:
+          type: string
+        website:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateSourceRequest:
+      type: object
+      required:
+        - companyId
+        - platform
+        - name
+      properties:
+        companyId:
+          type: integer
+        platform:
+          type: string
+          enum: [YANDEX, GOOGLE, TWOGIS]
+        name:
+          type: string
+          maxLength: 200
+        url:
+          type: string
+          maxLength: 500
+        apiKey:
+          type: string
+          maxLength: 255
+
+    SourceResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        platform:
+          type: string
+          enum: [YANDEX, GOOGLE, TWOGIS]
+        name:
+          type: string
+        url:
+          type: string
+        isActive:
+          type: boolean
+        lastCollection:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    ReviewResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        sourceId:
+          type: integer
+        externalId:
+          type: string
+        author:
+          type: string
+        rating:
+          type: number
+          format: double
+          minimum: 1.0
+          maximum: 5.0
+        text:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+        collectedAt:
+          type: string
+          format: date-time
+        sentiment:
+          type: string
+          enum: [POSITIVE, NEUTRAL, NEGATIVE]
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateSentimentRequest:
+      type: object
+      required:
+        - sentiment
+      properties:
+        sentiment:
+          type: string
+          enum: [POSITIVE, NEUTRAL, NEGATIVE]
+
+    CreateTaskRequest:
+      type: object
+      required:
+        - reviewId
+      properties:
+        reviewId:
+          type: integer
+        assignedToId:
+          type: integer
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        deadline:
+          type: string
+          format: date-time
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        reviewId:
+          type: integer
+        assignedToId:
+          type: integer
+        assignedToName:
+          type: string
+        status:
+          type: string
+          enum: [NEW, ASSIGNED, IN_PROGRESS, PENDING_REVIEW, IN_REVISION, COMPLETED, CANCELLED]
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, URGENT]
+        deadline:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    CreateResponseRequest:
+      type: object
+      required:
+        - taskId
+        - text
+      properties:
+        taskId:
+          type: integer
+        text:
+          type: string
+
+    ResponseResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        taskId:
+          type: integer
+        reviewId:
+          type: integer
+        userId:
+          type: integer
+        userName:
+          type: string
+        text:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+        isPublished:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateCommentRequest:
+      type: object
+      required:
+        - taskId
+        - text
+      properties:
+        taskId:
+          type: integer
+        text:
+          type: string
+
+    CommentResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        taskId:
+          type: integer
+        userId:
+          type: integer
+        userName:
+          type: string
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    GenerateReportRequest:
+      type: object
+      required:
+        - companyId
+        - type
+        - periodStart
+        - periodEnd
+        - format
+      properties:
+        companyId:
+          type: integer
+        type:
+          type: string
+          enum: [SUMMARY, DETAILED, ANALYTICS]
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        format:
+          type: string
+          enum: [PDF, EXCEL, CSV]
+
+    ReportResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: integer
+        createdById:
+          type: integer
+        createdByName:
+          type: string
+        type:
+          type: string
+          enum: [SUMMARY, DETAILED, ANALYTICS]
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        format:
+          type: string
+          enum: [PDF, EXCEL, CSV]
+        filePath:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Аутентификация
+      summary: Вход в систему
+      description: Аутентификация пользователя и получение JWT токенов (access и refresh)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwtResponse'
+        '401':
+          description: Неверные учетные данные
+        '400':
+          description: Ошибка валидации
+
+  /auth/refresh:
+    post:
+      tags:
+        - Аутентификация
+      summary: Обновление токена
+      description: Обновление access токена с помощью refresh токена
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Токен успешно обновлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwtResponse'
+        '403':
+          description: Refresh токен истек или не найден
+        '400':
+          description: Ошибка валидации
+
+  /auth/logout:
+    post:
+      tags:
+        - Аутентификация
+      summary: Выход из системы
+      description: Выход из системы и удаление refresh токена
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Успешный выход из системы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Ошибка валидации
+
+  /users:
+    post:
+      tags:
+        - Управление пользователями
+      summary: Создать пользователя
+      description: Создание нового пользователя в системе
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Пользователь успешно создан
+        '400':
+          description: Ошибка валидации
+        '403':
+          description: Недостаточно прав доступа
+    get:
+      tags:
+        - Управление пользователями
+      summary: Получить всех пользователей
+      description: Получение списка всех пользователей системы
+      responses:
+        '200':
+          description: Список пользователей
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /users/me:
+    get:
+      tags:
+        - Управление пользователями
+      summary: Получить текущего пользователя
+      description: Получение информации о текущем аутентифицированном пользователе
+      responses:
+        '200':
+          description: Информация о пользователе
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /users/{id}:
+    get:
+      tags:
+        - Управление пользователями
+      summary: Получить пользователя по ID
+      description: Получение информации о пользователе по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация о пользователе
+        '404':
+          description: Пользователь не найден
+
+  /users/{id}/reset-password:
+    put:
+      tags:
+        - Управление пользователями
+      summary: Сбросить пароль пользователя
+      description: Сброс пароля пользователя администратором
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Пароль успешно сброшен
+        '404':
+          description: Пользователь не найден
+
+  /users/me/password:
+    put:
+      tags:
+        - Управление пользователями
+      summary: Изменить свой пароль
+      description: Изменение пароля текущего пользователя
+      responses:
+        '200':
+          description: Пароль успешно изменен
+        '400':
+          description: Ошибка валидации
+
+  /companies:
+    post:
+      tags:
+        - Управление компаниями
+      summary: Создать компанию
+      description: Создание новой компании в системе
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCompanyRequest'
+      responses:
+        '201':
+          description: Компания успешно создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+        '400':
+          description: Ошибка валидации
+        '403':
+          description: Недостаточно прав доступа
+    get:
+      tags:
+        - Управление компаниями
+      summary: Получить все компании
+      description: Получение списка всех компаний
+      responses:
+        '200':
+          description: Список компаний
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CompanyResponse'
+
+  /companies/{id}:
+    get:
+      tags:
+        - Управление компаниями
+      summary: Получить компанию по ID
+      description: Получение информации о компании по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация о компании
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+        '404':
+          description: Компания не найдена
+    put:
+      tags:
+        - Управление компаниями
+      summary: Обновить компанию
+      description: Обновление информации о компании
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCompanyRequest'
+      responses:
+        '200':
+          description: Компания успешно обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+        '404':
+          description: Компания не найдена
+    delete:
+      tags:
+        - Управление компаниями
+      summary: Удалить компанию
+      description: Удаление компании из системы
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Компания успешно удалена
+        '404':
+          description: Компания не найдена
+
+  /companies/{id}/statistics:
+    get:
+      tags:
+        - Управление компаниями
+      summary: Получить статистику компании
+      description: Получение статистики по компании
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Статистика компании
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /sources:
+    post:
+      tags:
+        - Управление источниками
+      summary: Создать источник
+      description: Создание нового источника отзывов
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSourceRequest'
+      responses:
+        '201':
+          description: Источник успешно создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceResponse'
+    get:
+      tags:
+        - Управление источниками
+      summary: Получить все источники
+      description: Получение списка всех источников отзывов
+      responses:
+        '200':
+          description: Список источников
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceResponse'
+
+  /sources/{id}:
+    get:
+      tags:
+        - Управление источниками
+      summary: Получить источник по ID
+      description: Получение информации об источнике по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация об источнике
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceResponse'
+        '404':
+          description: Источник не найден
+
+  /sources/company/{companyId}:
+    get:
+      tags:
+        - Управление источниками
+      summary: Получить источники компании
+      description: Получение списка источников для конкретной компании
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список источников компании
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceResponse'
+
+  /sources/{id}/collect:
+    post:
+      tags:
+        - Управление источниками
+      summary: Запустить сбор отзывов
+      description: Ручной запуск сбора отзывов из источника
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Сбор отзывов запущен
+        '404':
+          description: Источник не найден
+
+  /reviews:
+    get:
+      tags:
+        - Работа с отзывами
+      summary: Получить все отзывы
+      description: Получение списка всех отзывов
+      responses:
+        '200':
+          description: Список отзывов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewResponse'
+
+  /reviews/{id}:
+    get:
+      tags:
+        - Работа с отзывами
+      summary: Получить отзыв по ID
+      description: Получение информации об отзыве по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация об отзыве
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+        '404':
+          description: Отзыв не найден
+    put:
+      tags:
+        - Работа с отзывами
+      summary: Обновить тональность отзыва
+      description: Обновление тональности отзыва
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSentimentRequest'
+      responses:
+        '200':
+          description: Тональность успешно обновлена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+    delete:
+      tags:
+        - Работа с отзывами
+      summary: Удалить отзыв
+      description: Удаление отзыва из системы
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Отзыв успешно удален
+        '404':
+          description: Отзыв не найден
+
+  /reviews/company/{companyId}:
+    get:
+      tags:
+        - Работа с отзывами
+      summary: Получить отзывы компании
+      description: Получение списка отзывов для конкретной компании
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список отзывов компании
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewResponse'
+
+  /reviews/statistics:
+    get:
+      tags:
+        - Работа с отзывами
+      summary: Получить статистику по отзывам
+      description: Получение статистики по отзывам
+      responses:
+        '200':
+          description: Статистика по отзывам
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /tasks:
+    post:
+      tags:
+        - Управление задачами
+      summary: Создать задачу
+      description: Создание новой задачи для работы с отзывом
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Задача успешно создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+    get:
+      tags:
+        - Управление задачами
+      summary: Получить все задачи
+      description: Получение списка всех задач
+      responses:
+        '200':
+          description: Список задач
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskResponse'
+
+  /tasks/{id}:
+    get:
+      tags:
+        - Управление задачами
+      summary: Получить задачу по ID
+      description: Получение информации о задаче по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация о задаче
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача не найдена
+
+  /tasks/my-tasks:
+    get:
+      tags:
+        - Управление задачами
+      summary: Получить мои задачи
+      description: Получение списка задач, назначенных текущему специалисту
+      responses:
+        '200':
+          description: Список моих задач
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskResponse'
+
+  /tasks/{id}/assign:
+    put:
+      tags:
+        - Управление задачами
+      summary: Назначить задачу
+      description: Назначение задачи специалисту
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Задача успешно назначена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача или пользователь не найдены
+
+  /tasks/{id}/start:
+    put:
+      tags:
+        - Управление задачами
+      summary: Начать работу над задачей
+      description: Начало работы специалиста над задачей
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Работа над задачей начата
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача не найдена
+
+  /tasks/{id}/complete:
+    put:
+      tags:
+        - Управление задачами
+      summary: Завершить задачу
+      description: Завершение работы над задачей и отправка на проверку
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Задача завершена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача не найдена
+
+  /tasks/{id}/cancel:
+    put:
+      tags:
+        - Управление задачами
+      summary: Отменить задачу
+      description: Отмена задачи
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Задача отменена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача не найдена
+
+  /tasks/{id}/return:
+    put:
+      tags:
+        - Управление задачами
+      summary: Вернуть задачу на доработку
+      description: Возврат задачи на доработку специалисту
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Задача возвращена на доработку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '404':
+          description: Задача не найдена
+
+  /responses:
+    post:
+      tags:
+        - Работа с ответами
+      summary: Создать ответ
+      description: Создание ответа на отзыв
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResponseRequest'
+      responses:
+        '201':
+          description: Ответ успешно создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseResponse'
+    get:
+      tags:
+        - Работа с ответами
+      summary: Получить все ответы
+      description: Получение списка всех ответов
+      responses:
+        '200':
+          description: Список ответов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponseResponse'
+
+  /responses/{id}:
+    get:
+      tags:
+        - Работа с ответами
+      summary: Получить ответ по ID
+      description: Получение информации об ответе по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация об ответе
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseResponse'
+        '404':
+          description: Ответ не найден
+    delete:
+      tags:
+        - Работа с ответами
+      summary: Удалить ответ
+      description: Удаление ответа из системы
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Ответ успешно удален
+        '404':
+          description: Ответ не найден
+
+  /responses/{id}/approve:
+    put:
+      tags:
+        - Работа с ответами
+      summary: Одобрить ответ
+      description: Одобрение ответа модератором
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ответ одобрен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseResponse'
+        '404':
+          description: Ответ не найден
+
+  /responses/{id}/publish:
+    put:
+      tags:
+        - Работа с ответами
+      summary: Опубликовать ответ
+      description: Публикация ответа на платформе
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ответ опубликован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseResponse'
+        '404':
+          description: Ответ не найден
+
+  /comments:
+    post:
+      tags:
+        - Работа с комментариями
+      summary: Создать комментарий
+      description: Создание комментария к задаче
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Комментарий успешно создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentResponse'
+
+  /comments/task/{taskId}:
+    get:
+      tags:
+        - Работа с комментариями
+      summary: Получить комментарии к задаче
+      description: Получение списка комментариев для конкретной задачи
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Список комментариев
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CommentResponse'
+
+  /comments/{id}:
+    delete:
+      tags:
+        - Работа с комментариями
+      summary: Удалить комментарий
+      description: Удаление комментария из системы
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Комментарий успешно удален
+        '404':
+          description: Комментарий не найден
+
+  /reports/generate:
+    post:
+      tags:
+        - Управление отчетами
+      summary: Сгенерировать отчет
+      description: Генерация отчета по указанным параметрам
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReportRequest'
+      responses:
+        '201':
+          description: Отчет успешно сгенерирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+
+  /reports:
+    get:
+      tags:
+        - Управление отчетами
+      summary: Получить все отчеты
+      description: Получение списка всех отчетов
+      responses:
+        '200':
+          description: Список отчетов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReportResponse'
+
+  /reports/{id}:
+    get:
+      tags:
+        - Управление отчетами
+      summary: Получить отчет по ID
+      description: Получение информации об отчете по идентификатору
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Информация об отчете
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '404':
+          description: Отчет не найден
+    delete:
+      tags:
+        - Управление отчетами
+      summary: Удалить отчет
+      description: Удаление отчета из системы
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Отчет успешно удален
+        '404':
+          description: Отчет не найден
+
+  /reports/{id}/download:
+    get:
+      tags:
+        - Управление отчетами
+      summary: Скачать отчет
+      description: Скачивание сгенерированного отчета
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Файл отчета
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Отчет не найден
+
+  /analytics/overview:
+    get:
+      tags:
+        - Аналитика
+      summary: Получить общую статистику
+      description: Получение общей статистики по системе
+      responses:
+        '200':
+          description: Общая статистика
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /analytics/sentiment:
+    get:
+      tags:
+        - Аналитика
+      summary: Получить анализ тональности
+      description: Получение анализа тональности отзывов
+      responses:
+        '200':
+          description: Анализ тональности
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /analytics/sources:
+    get:
+      tags:
+        - Аналитика
+      summary: Получить статистику по источникам
+      description: Получение статистики по источникам отзывов
+      responses:
+        '200':
+          description: Статистика по источникам
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /analytics/trends:
+    get:
+      tags:
+        - Аналитика
+      summary: Получить динамику отзывов
+      description: Получение динамики отзывов за период
+      responses:
+        '200':
+          description: Динамика отзывов
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /analytics/geography:
+    get:
+      tags:
+        - Аналитика
+      summary: Получить географический анализ
+      description: Получение географического анализа отзывов
+      responses:
+        '200':
+          description: Географический анализ
+          content:
+            application/json:
+              schema:
+                type: object
+
