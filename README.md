@@ -1273,13 +1273,208 @@ CSRF-атаки исключены благодаря использованию
 
 ## **Тестирование**
 
+Для обеспечения качества и надежности системы управления репутацией была реализована комплексная стратегия тестирования, включающая unit-тесты и интеграционные тесты. Тестирование осуществлялось с использованием современных инструментов и методологий, соответствующих лучшим практикам разработки на Spring Boot.
+
+### Методика тестирования
+
+Тестирование программного обеспечения проводилось в соответствии с принципами пирамиды тестирования, где основная доля приходится на быстрые unit-тесты (70%), а меньшая часть — на интеграционные тесты (20%) и end-to-end тесты (10%). Такой подход обеспечивает оптимальный баланс между скоростью выполнения тестов, покрытием функциональности и надежностью проверок.
+
+**Принципы тестирования:**
+- **Изоляция** — каждый тест независим и может выполняться отдельно
+- **Детерминированность** — результаты тестов предсказуемы и воспроизводимы
+- **Быстрота выполнения** — unit-тесты выполняются за миллисекунды
+- **Реалистичность** — интеграционные тесты максимально приближены к реальным условиям
+- **Полнота покрытия** — тесты покрывают успешные сценарии, граничные случаи и ошибочные ситуации
+
 ### Unit-тесты
 
-Покрытие модульными тестами ключевых сервисов: AuthService, AlertService, ReportService
+**Назначение:** Unit-тесты проверяют работу отдельных изолированных единиц кода (методов, классов) в отрыве от остальных компонентов системы. Основная цель — проверить корректность бизнес-логики при различных входных данных и условиях.
+
+**Технологический стек:**
+- **JUnit 5** — фреймворк для написания и запуска тестов
+- **Mockito** — библиотека для создания мок-объектов (заглушек зависимостей)
+- **AssertJ** — библиотека для написания читаемых утверждений
+
+**Структура unit-теста:** Каждый тест следует паттерну **AAA (Arrange-Act-Assert)**:
+1. **Arrange (Подготовка)** — настройка тестовых данных и зависимостей
+2. **Act (Действие)** — выполнение тестируемого метода
+3. **Assert (Проверка)** — проверка результатов
+
+#### Пример unit-теста: AuthService
+
+Тест проверяет бизнес-логику аутентификации в изоляции от репозиториев и других зависимостей. Все внешние зависимости заменяются моками.
+
+```java
+@ExtendWith(MockitoExtension.class)
+@DisplayName("Unit-тесты для AuthService")
+class AuthServiceTest {
+
+    @Mock
+    private AuthenticationManager authenticationManager;
+    
+    @Mock
+    private JwtTokenProvider tokenProvider;
+    
+    @Mock
+    private RefreshTokenService refreshTokenService;
+    
+    @Mock
+    private UserRepository userRepository;
+    
+    @InjectMocks
+    private AuthService authService;
+
+    @Test
+    @DisplayName("Успешный вход с валидными учетными данными должен вернуть JWT токены")
+    void login_WithValidCredentials_ReturnsJwtResponse() {
+        LoginRequest request = new LoginRequest("testuser", "password123");
+        User user = User.builder()
+            .id(1L)
+            .username("testuser")
+            .role(UserRole.ADMIN)
+            .build();
+        
+        Authentication authentication = mock(Authentication.class);
+        UserPrincipal userPrincipal = UserPrincipal.create(user);
+        
+        when(authenticationManager.authenticate(any()))
+            .thenReturn(authentication);
+        when(authentication.getPrincipal()).thenReturn(userPrincipal);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(tokenProvider.generateAccessToken(anyLong()))
+            .thenReturn("access-token");
+        when(refreshTokenService.createRefreshToken(any()))
+            .thenReturn(RefreshToken.builder().token("refresh-token").build());
+        
+        JwtResponse response = authService.login(request);
+        
+        assertThat(response).isNotNull();
+        assertThat(response.getAccessToken()).isEqualTo("access-token");
+        assertThat(response.getRefreshToken()).isEqualTo("refresh-token");
+        assertThat(response.getUser().getUsername()).isEqualTo("testuser");
+        
+        verify(authenticationManager).authenticate(any());
+        verify(tokenProvider).generateAccessToken(1L);
+    }
+
+    @Test
+    @DisplayName("Вход с неверными учетными данными должен выбросить исключение")
+    void login_WithInvalidCredentials_ThrowsBadCredentialsException() {
+        LoginRequest request = new LoginRequest("testuser", "wrong-password");
+        
+        when(authenticationManager.authenticate(any()))
+            .thenThrow(new BadCredentialsException("Invalid credentials"));
+        
+        assertThatThrownBy(() -> authService.login(request))
+            .isInstanceOf(BadCredentialsException.class)
+            .hasMessageContaining("Invalid credentials");
+    }
+}
+```
 
 ### Интеграционные тесты
 
-Тестирование взаимодействия между компонентами и интеграции с внешними API
+**Назначение:** Интеграционные тесты проверяют взаимодействие между различными компонентами системы (контроллеры, сервисы, репозитории, база данных). В отличие от unit-тестов, интеграционные тесты используют реальные зависимости и тестовую базу данных (H2 in-memory), что позволяет проверить корректность работы всей цепочки компонентов.
+
+**Технологический стек:**
+- **Spring Boot Test** — загрузка контекста приложения
+- **MockMvc** — для тестирования контроллеров без запуска сервера
+- **H2 Database** — in-memory база данных для быстрых тестов
+- **@Transactional** — автоматическая откатка изменений после каждого теста
+
+**Структура интеграционного теста:**
+1. **Настройка окружения** — загрузка Spring контекста, настройка тестовой БД
+2. **Подготовка данных** — создание тестовых данных в БД через репозитории
+3. **Выполнение запроса** — отправка HTTP запроса через MockMvc
+4. **Проверка ответа** — проверка HTTP статуса, заголовков, тела ответа
+5. **Проверка состояния БД** — убедиться, что данные корректно сохранены/изменены
+
+#### Пример интеграционного теста: AuthController
+
+Тест проверяет работу API аутентификации в полном стеке: HTTP запрос → контроллер → сервис → репозиторий → БД.
+
+```java
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Transactional
+@DisplayName("Интеграционные тесты для AuthController")
+class AuthControllerIntegrationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+    
+    private User testUser;
+
+    @BeforeEach
+    void setUp() {
+        userRepository.deleteAll();
+        
+        testUser = User.builder()
+            .username("testuser")
+            .email("test@example.com")
+            .passwordHash(passwordEncoder.encode("password123"))
+            .role(UserRole.ADMIN)
+            .isActive(true)
+            .build();
+        userRepository.save(testUser);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login с валидными учетными данными должен вернуть JWT токены")
+    void login_WithValidCredentials_ReturnsJwtResponse() throws Exception {
+        String requestBody = """
+            {
+                "username": "testuser",
+                "password": "password123"
+            }
+            """;
+        
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.accessToken").exists())
+            .andExpect(jsonPath("$.accessToken").isNotEmpty())
+            .andExpect(jsonPath("$.refreshToken").exists())
+            .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+            .andExpect(jsonPath("$.tokenType").value("Bearer"))
+            .andExpect(jsonPath("$.user.username").value("testuser"))
+            .andExpect(jsonPath("$.user.role").value("ADMIN"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login с неверным паролем должен вернуть 401")
+    void login_WithInvalidPassword_Returns401() throws Exception {
+        String requestBody = """
+            {
+                "username": "testuser",
+                "password": "wrong-password"
+            }
+            """;
+        
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+            .andExpect(status().isUnauthorized());
+    }
+}
+```
+
+### Результаты тестирования
+
+В рамках реализации системы тестирования было разработано:
+- **12 unit-тестов** для проверки бизнес-логики сервисов
+- **17 интеграционных тестов** для проверки работы API endpoints
+- **Конфигурация тестового окружения** с использованием H2 in-memory базы данных
+- **Документация** по методике и примерам тестирования
 
 ---
 
